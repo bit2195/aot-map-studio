@@ -1,0 +1,824 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AOT Map Studio v2.0</title>
+<style>
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:#101216;color:#e9edf2;font-family:system-ui,-apple-system,"Microsoft YaHei",sans-serif;overflow:hidden}
+button,input,select{font:inherit}
+button{border:1px solid #39404a;background:#20252c;color:#e9edf2;border-radius:6px;padding:7px 10px;cursor:pointer}
+button:hover{background:#2b3139}
+button.primary{background:#394b5d;border-color:#5b7895}
+button.danger{border-color:#774646}
+button:disabled{opacity:.45;cursor:not-allowed}
+.top{height:54px;display:flex;align-items:center;gap:7px;padding:7px 10px;background:#171a1f;border-bottom:1px solid #303640}
+.brand{font-weight:800;margin-right:10px;white-space:nowrap}
+.spacer{flex:1}
+.badge{font-size:11px;padding:3px 7px;border:1px solid #3b424c;border-radius:999px;color:#aeb8c3}
+.main{height:calc(100vh - 54px);display:flex}
+.left{width:190px;background:#16191e;border-right:1px solid #303640;padding:10px;overflow:auto}
+.right{width:290px;background:#16191e;border-left:1px solid #303640;padding:10px;overflow:auto}
+.center{position:relative;flex:1;overflow:hidden;background:#222831}
+.canvas{position:absolute;left:0;top:0;transform-origin:0 0;background:#d7d2c8;image-rendering:auto}
+.grid{position:absolute;left:0;top:0;pointer-events:none;transform-origin:0 0;background-image:linear-gradient(#60687255 1px,transparent 1px),linear-gradient(90deg,#60687255 1px,transparent 1px);background-size:50px 50px}
+.group{border-bottom:1px solid #2c323a;padding-bottom:10px;margin-bottom:10px}
+h3{font-size:12px;color:#a9b2bd;margin:4px 0 8px}
+.tool{display:block;width:100%;text-align:left;margin:5px 0}
+.tool.active{background:#46515e}
+.tip{font-size:12px;color:#98a3ae;line-height:1.55}
+.status{position:absolute;left:10px;bottom:10px;background:#111a;padding:7px 10px;border:1px solid #3b424c;border-radius:6px;z-index:5}
+.row{display:flex;gap:6px;align-items:center;margin:6px 0}
+.row label{width:52px;color:#9fa9b4;font-size:12px}
+.row input,.row select{flex:1;min-width:0;background:#20242a;border:1px solid #3b424c;color:#eee;border-radius:4px;padding:6px}
+.objlist{max-height:260px;overflow:auto;background:#101216;border:1px solid #303640;border-radius:5px}
+.obj{padding:6px 8px;border-bottom:1px solid #272c33;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.obj:hover,.obj.sel{background:#303842}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.stat{padding:7px;background:#20242a;border:1px solid #303640;border-radius:5px}
+.stat b{display:block;font-size:16px}.stat span{font-size:11px;color:#98a3ae}
+.modal{position:absolute;inset:0;background:#000b;display:none;align-items:center;justify-content:center;z-index:30}
+.modal.show{display:flex}
+.dialog{width:min(980px,92vw);height:min(720px,88vh);background:#171a1f;border:1px solid #505762;border-radius:9px;padding:14px;display:flex;flex-direction:column}
+.dialog textarea{flex:1;background:#0d1014;color:#dfe5eb;border:1px solid #343b45;border-radius:5px;margin:10px 0;padding:10px;font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}
+#gameModal .dialog{width:min(1180px,96vw);height:min(760px,94vh)}
+#gameFrame{width:100%;height:100%;border:1px solid #343b45;background:#000;border-radius:5px}
+.help{font-size:12px;color:#9da7b1}
+.file{display:none}
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="brand">AOT Map Studio <span class="badge">v2.0 · ZIP → 编辑 → 真实游戏预览</span></div>
+  <button id="importZip" class="primary">📦 导入整个游戏 ZIP</button>
+  <div id="zipDropZone" class="zip-drop-zone" tabindex="0">
+  <div class="zip-drop-title">📦 导入整个游戏 ZIP</div>
+  <div class="zip-drop-text">点击选择 ZIP，或直接把游戏 ZIP 拖到这里</div>
+  <input id="zipInput" type="file" accept=".zip,application/zip,application/x-zip-compressed" />
+</div>
+  <button id="importMap">导入 UMAP</button><input id="mapInput" class="file" type="file" accept=".json">
+  <button id="undo">撤销</button><button id="redo">重做</button>
+  <button id="save">保存</button>
+  <button id="exportMap">导出地图 JSON</button>
+  <button id="exportJs">导出游戏 JS</button>
+  <div class="spacer"></div>
+  <button id="run" class="primary" disabled>▶ 运行真实游戏</button>
+<button id="exportFullGameZipBtn" class="primary">📦 导出完整游戏 ZIP</button>
+
+</div>
+
+<div class="main">
+<aside class="left">
+  <div class="group">
+    <h3>编辑工具</h3>
+    <button class="tool active" data-tool="select">↖ 选择 / 拖动</button>
+    <button class="tool" data-tool="pan">✋ 平移画布</button>
+  </div>
+  <div class="group">
+    <h3>添加对象</h3>
+    <button class="tool" data-add="platform">🧱 地形</button>
+    <button class="tool" data-add="anchor">🪝 立体机动锚点</button>
+    <button class="tool" data-add="titan">👹 巨人</button>
+    <button class="tool" data-add="checkpoint">📍 检查点</button>
+  </div>
+  <div class="group">
+    <h3>视图</h3>
+    <label><input id="gridToggle" type="checkbox" checked> 网格</label><br>
+    <label><input id="labelToggle" type="checkbox" checked> 标签</label><br>
+    <label><input id="collisionToggle" type="checkbox" checked> 碰撞框</label>
+  </div>
+  <div class="group">
+    <h3>快捷键</h3>
+    <div class="tip">滚轮：缩放<br>中键/平移工具：移动画布<br>Delete：删除<br>方向键：微调<br>Ctrl/Cmd+S：保存<br>F6：运行游戏<br>Esc：关闭预览</div>
+  </div>
+  <div class="tip" id="sourceTip">尚未导入游戏 ZIP。导入后会自动寻找 maneuver-run.js，并尝试建立真实游戏预览。</div>
+</aside>
+
+<main class="center" id="viewport">
+  <canvas id="canvas" class="canvas"></canvas>
+  <div id="gridEl" class="grid"></div>
+  <div id="status" class="status">等待导入游戏 ZIP</div>
+</main>
+
+<aside class="right">
+  <div class="group">
+    <h3>地图统计</h3>
+    <div class="stats">
+      <div class="stat"><b id="sPlatforms">0</b><span>地形</span></div>
+      <div class="stat"><b id="sAnchors">0</b><span>锚点</span></div>
+      <div class="stat"><b id="sTitans">0</b><span>巨人</span></div>
+      <div class="stat"><b id="sCP">0</b><span>检查点</span></div>
+    </div>
+  </div>
+  <div class="group">
+    <h3>当前对象</h3>
+    <div id="props" class="tip">未选择对象</div>
+  </div>
+  <div class="group">
+    <h3>对象列表</h3>
+    <div id="objlist" class="objlist"></div>
+  </div>
+</aside>
+</div>
+
+<div id="codeModal" class="modal">
+  <div class="dialog">
+    <div class="row"><b id="codeTitle">导出</b><div class="spacer"></div><button id="codeClose">关闭</button></div>
+    <textarea id="codeOut"></textarea>
+    <div class="row"><button id="codeCopy">复制</button><button id="codeDownload">下载</button></div>
+  </div>
+</div>
+
+<div id="gameModal" class="modal">
+  <div class="dialog">
+    <div class="row"><b>真实游戏预览</b><span class="badge" id="gameInfo">maneuver-run.js</span><div class="spacer"></div><button id="gameReload">↻ 重载</button><button id="gameClose">退出预览</button></div>
+    <iframe id="gameFrame" title="真实游戏预览" sandbox="allow-scripts allow-same-origin"></iframe>
+    <div class="help">预览使用你导入 ZIP 中的真实 maneuver-run.js 和图片资源；修改地图后重新点击“运行真实游戏”即可验证。</div>
+  </div>
+</div>
+
+<script>
+(() => {
+"use strict";
+
+/* ---------- State ---------- */
+let data = {
+  format:"AOT-UMAP", version:"2.0",
+  source:"", world:{width:5200,height:920,groundY:920}, objects:[]
+};
+let gameFiles = new Map();
+let objectUrls = new Map();
+let sourceRoot = "";
+let maneuverPath = "";
+let selected = null, tool = "select";
+let scale = .22, ox = 40, oy = 40;
+let drag = null, history = [], future = [];
+let lastSaved = null;
+
+/* ---------- Small helpers ---------- */
+const $ = s => document.querySelector(s);
+const icon = t => ({platform:"🧱",anchor:"🪝",titan:"👹",checkpoint:"📍"})[t] || "•";
+const clone = x => JSON.parse(JSON.stringify(x));
+const esc = s => String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+function snap(v){ return Math.round(v/5)*5; }
+function makeId(type){
+  let n=1, id;
+  do { id = type+"_"+String(n++).padStart(3,"0"); } while(data.objects.some(o=>o.id===id));
+  return id;
+}
+function snapshot(){
+  history.push(JSON.stringify(data));
+  if(history.length>80) history.shift();
+  future=[];
+}
+function restore(str){
+  data=JSON.parse(str); selected=null; fit(); renderAll();
+}
+
+/* ---------- ZIP reader: Store + Deflate ---------- */
+const textDecoder = new TextDecoder("utf-8");
+function u16(a,i){return a[i]|(a[i+1]<<8)}
+function u32(a,i){return (a[i]|(a[i+1]<<8)|(a[i+2]<<16)|(a[i+3]<<24))>>>0}
+function findEOCD(a){
+  for(let i=a.length-22;i>=Math.max(0,a.length-65558);i--){
+    if(u32(a,i)===0x06054b50) return i;
+  }
+  return -1;
+}
+async function inflateRaw(bytes){
+  if(!("DecompressionStream" in window)) throw new Error("当前浏览器不支持 DecompressionStream，请使用新版 Chrome / Edge / Firefox。");
+  const ds=new DecompressionStream("deflate-raw");
+  const stream=new Blob([bytes]).stream().pipeThrough(ds);
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+async function readZip(file){
+  const a=new Uint8Array(await file.arrayBuffer()), e=findEOCD(a);
+  if(e<0) throw new Error("不是标准 ZIP 文件或 ZIP 已损坏。");
+  const total=u16(a,e+10), cdSize=u32(a,e+12), cdOffset=u32(a,e+16);
+  let p=cdOffset, files=new Map();
+  for(let n=0;n<total;n++){
+    if(u32(a,p)!==0x02014b50) throw new Error("ZIP 中央目录解析失败。");
+    const method=u16(a,p+10), csize=u32(a,p+20), usize=u32(a,p+24);
+    const nameLen=u16(a,p+28), extraLen=u16(a,p+30), commentLen=u16(a,p+32), localOff=u32(a,p+42);
+    const name=textDecoder.decode(a.slice(p+46,p+46+nameLen));
+    p += 46+nameLen+extraLen+commentLen;
+    if(name.endsWith("/")) continue;
+    if(method!==0 && method!==8) continue;
+    if(u32(a,localOff)!==0x04034b50) continue;
+    const ln=u16(a,localOff+26), le=u16(a,localOff+28);
+    const start=localOff+30+ln+le, compressed=a.slice(start,start+csize);
+    let bytes;
+    if(method===0) bytes=compressed;
+    else bytes=await inflateRaw(compressed);
+    if(usize && bytes.length!==usize) console.warn("size mismatch",name,bytes.length,usize);
+    files.set(name,bytes);
+  }
+  return files;
+}
+
+/* ---------- Path/resource helpers ---------- */
+function findFile(suffix){
+  const exact=sourceRoot+suffix;
+  if(gameFiles.has(exact)) return exact;
+  for(const k of gameFiles.keys()) if(k.endsWith("/"+suffix)||k===suffix) return k;
+  return null;
+}
+function mime(path){
+  const e=path.split(".").pop().toLowerCase();
+  return {png:"image/png",jpg:"image/jpeg",jpeg:"image/jpeg",webp:"image/webp",gif:"image/gif",svg:"image/svg+xml",css:"text/css",js:"text/javascript",html:"text/html",json:"application/json",woff:"font/woff",woff2:"font/woff2",mp3:"audio/mpeg",wav:"audio/wav",mp4:"video/mp4"}[e]||"application/octet-stream";
+}
+function urlFor(path){
+  if(!path) return path;
+  if(/^data:|^blob:|^https?:|^\/\//.test(path)) return path;
+  let clean=path.replace(/^\.\//,"");
+  let key=findFile(clean);
+  if(!key) return path;
+  if(!objectUrls.has(key)) objectUrls.set(key,URL.createObjectURL(new Blob([gameFiles.get(key)],{type:mime(key)})));
+  return objectUrls.get(key);
+}
+function bytesText(key){ return textDecoder.decode(gameFiles.get(key)||new Uint8Array()); }
+
+/* ---------- Map extraction ---------- */
+function extractBalanced(src, start){
+  const open=src[start], close=open==="["?"]":"}";
+  let d=0,q=null,escp=false;
+  for(let i=start;i<src.length;i++){
+    const c=src[i];
+    if(q){
+      if(escp) escp=false;
+      else if(c==="\\") escp=true;
+      else if(c===q) q=null;
+    }else{
+      if(c==="'"||c==='"'||c==="`") q=c;
+      else if(c===open)d++;
+      else if(c===close){d--;if(d===0)return src.slice(start,i+1);}
+    }
+  }
+  return null;
+}
+function parseJsLiteral(raw){
+  if(!raw)return [];
+  let s=raw.replace(/\/\*[\s\S]*?\*\//g,"").replace(/(^|[^:])\/\/.*$/gm,"$1");
+  s=s.replace(/([{,]\s*)([A-Za-z_$][\w$]*)\s*:/g,'$1"$2":');
+  s=s.replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g,(m,x)=>JSON.stringify(x.replace(/\\'/g,"'")));
+  s=s.replace(/,\s*([}\]])/g,"$1");
+  try{return JSON.parse(s)}catch(e){console.warn("parse literal failed",e);return []}
+}
+function getDeclArray(src,name){
+  const re=new RegExp("(?:const|let|var)\\s+"+name+"\\s*=\\s*");
+  const m=re.exec(src); if(!m)return [];
+  const start=m.index+m[0].length;
+  const raw=extractBalanced(src,start);
+  return parseJsLiteral(raw);
+}
+function numMatch(src,rx,fallback){
+  const m=src.match(rx); return m?Number(m[1]):fallback;
+}
+function sourceToMap(src){
+  const ps=getDeclArray(src,"PLATFORM"), as=getDeclArray(src,"ANCHORS"), cs=getDeclArray(src,"CHECKPOINTS");
+  const width=numMatch(src,/WORLD_W\s*=\s*(\d+)/,5200), height=numMatch(src,/WORLD_H\s*=\s*(\d+)/,920);
+  const os=[];
+  ps.forEach((o,i)=>os.push({id:"platform_"+String(i+1).padStart(3,"0"),type:"platform",x:+o.x||0,y:+o.y||0,w:+o.w||80,h:+o.h||40,subtype:o.t||"stone",collision:true}));
+  as.forEach((o,i)=>os.push({id:"anchor_"+String(i+1).padStart(3,"0"),type:"anchor",x:(+o.x||0)-10,y:(+o.y||0)-10,w:20,h:20,collision:false}));
+  cs.forEach((o,i)=>os.push({id:"checkpoint_"+String(i+1).padStart(3,"0"),type:"checkpoint",x:(+o.x||0)-12,y:(+o.y||0)-12,w:24,h:24,collision:false}));
+  const tm=src.match(/titan\s*=\s*\{\s*x\s*:\s*([-\d.]+)\s*,\s*y\s*:\s*([-\d.]+)/);
+  if(tm) os.push({id:"titan_001",type:"titan",x:+tm[1]-35,y:+tm[2]-110,w:70,h:110,collision:true});
+  return {format:"AOT-UMAP",version:"2.0",source:maneuverPath,world:{width,height,groundY:height},objects:os};
+}
+
+/* ---------- JS patching ---------- */
+function replaceDecl(src,name,value){
+  const re=new RegExp("((?:const|let|var)\\s+"+name+"\\s*=\\s*)");
+  const m=re.exec(src); if(!m)return src;
+  const start=m.index+m[0].length, raw=extractBalanced(src,start);
+  if(!raw)return src;
+  return src.slice(0,start)+value+src.slice(start+raw.length);
+}
+function mapToGameJs(src){
+  const platforms=data.objects.filter(o=>o.type==="platform").map(o=>({x:o.x,y:o.y,w:o.w,h:o.h,t:o.subtype||"stone"}));
+  const anchors=data.objects.filter(o=>o.type==="anchor").map(o=>({x:o.x+10,y:o.y+10}));
+  const cps=data.objects.filter(o=>o.type==="checkpoint").map((o,i)=>({x:o.x+12,y:o.y+12,id:i}));
+  let out=replaceDecl(src,"PLATFORM",JSON.stringify(platforms));
+  out=replaceDecl(out,"ANCHORS",JSON.stringify(anchors));
+  out=replaceDecl(out,"CHECKPOINTS",JSON.stringify(cps));
+  const titan=data.objects.find(o=>o.type==="titan");
+  if(titan){
+    out=out.replace(/titan\s*=\s*\{\s*x\s*:\s*[-\d.]+\s*,\s*y\s*:\s*[-\d.]+/,(m)=>{
+      return m.replace(/x\s*:\s*[-\d.]+/,"x:"+Math.round(titan.x+titan.w/2))
+              .replace(/y\s*:\s*[-\d.]+/,"y:"+Math.round(titan.y+titan.h));
+    });
+  }
+  return out;
+}
+
+/* ---------- Rendering ---------- */
+const canvas=$("#canvas"),ctx=canvas.getContext("2d"),viewport=$("#viewport");
+function fit(){canvas.width=data.world.width;canvas.height=data.world.height;draw()}
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle="#d9d4ca";ctx.fillRect(0,0,canvas.width,canvas.height);
+  // background bands
+  ctx.fillStyle="#a4a39f";ctx.fillRect(0,80,canvas.width,42);
+  ctx.fillStyle="#b6b2aa";ctx.fillRect(0,data.world.groundY,canvas.width,data.world.height-data.world.groundY);
+  // road markings
+  ctx.strokeStyle="#aaa49b";ctx.lineWidth=3;ctx.setLineDash([30,35]);
+  ctx.beginPath();ctx.moveTo(0,Math.min(data.world.groundY-25,data.world.height-30));ctx.lineTo(canvas.width,Math.min(data.world.groundY-25,data.world.height-30));ctx.stroke();ctx.setLineDash([]);
+  for(const o of data.objects){
+    const x=o.x,y=o.y,w=o.w||20,h=o.h||20;
+    if(o.type==="platform"){
+      ctx.fillStyle=o.subtype==="tower"?"#77746e":o.subtype==="gate"?"#66645f":o.subtype==="wood"?"#8a7664":"#8d8a83";
+      ctx.fillRect(x,y,w,h);ctx.strokeStyle="#5d5a55";ctx.strokeRect(x,y,w,h);
+      if(o.subtype==="tower"){
+        ctx.fillStyle="#55524d";
+        for(let xx=x+14;xx<x+w-10;xx+=34)for(let yy=y+25;yy<y+h-15;yy+=44)ctx.fillRect(xx,yy,13,19);
+      }else if(o.subtype==="wood"){
+        ctx.strokeStyle="#665447";ctx.lineWidth=4;
+        for(let xx=x+10;xx<x+w;xx+=32){ctx.beginPath();ctx.moveTo(xx,y);ctx.lineTo(xx+12,y+h);ctx.stroke()}
+      }
+    }else if(o.type==="anchor"){
+      ctx.strokeStyle="#24272b";ctx.lineWidth=3;ctx.beginPath();ctx.arc(x+10,y+10,8,0,Math.PI*2);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(x+2,y+18);ctx.lineTo(x+18,y+2);ctx.stroke();
+    }else if(o.type==="checkpoint"){
+      ctx.strokeStyle="#333";ctx.lineWidth=3;ctx.beginPath();ctx.arc(x+12,y+12,10,0,Math.PI*2);ctx.stroke();ctx.fillStyle="#333";ctx.fillRect(x+10,y+2,4,20);
+    }else if(o.type==="titan"){
+      ctx.fillStyle="#6e5c53";ctx.fillRect(x+12,y+30,w-24,h-30);
+      ctx.beginPath();ctx.arc(x+w/2,y+22,22,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle="#202020";ctx.fillRect(x+22,y+50,7,7);ctx.fillRect(x+w-29,y+50,7,7);
+      ctx.fillStyle="#8b776a";ctx.fillRect(x,y+h-25,w,25);
+    }
+    if($("#collisionToggle").checked && o.collision){ctx.strokeStyle="#c74f4f99";ctx.lineWidth=2;ctx.strokeRect(x,y,w,h)}
+    if($("#labelToggle").checked){ctx.fillStyle="#222";ctx.font="12px sans-serif";ctx.fillText(o.id,x,y-4)}
+    if(selected===o.id){ctx.strokeStyle="#f1c84b";ctx.lineWidth=3;ctx.strokeRect(x-5,y-5,w+10,h+10)}
+  }
+  canvas.style.transform=`translate(${ox}px,${oy}px) scale(${scale})`;
+  $("#gridEl").style.transform=`translate(${ox}px,${oy}px) scale(${scale})`;
+  $("#gridEl").style.width=data.world.width+"px";$("#gridEl").style.height=data.world.height+"px";
+  $("#status").textContent=`${data.world.width}×${data.world.height}  ·  ${data.objects.length} objects  ·  ${(scale*100).toFixed(0)}%`;
+}
+function screenToWorld(e){const r=viewport.getBoundingClientRect();return{x:(e.clientX-r.left-ox)/scale,y:(e.clientY-r.top-oy)/scale}}
+function hit(p){
+  for(let i=data.objects.length-1;i>=0;i--){const o=data.objects[i];if(p.x>=o.x&&p.x<=o.x+(o.w||20)&&p.y>=o.y&&p.y<=o.y+(o.h||20))return o}
+  return null;
+}
+function renderList(){
+  const el=$("#objlist");el.innerHTML="";
+  for(const o of data.objects){const d=document.createElement("div");d.className="obj"+(o.id===selected?" sel":"");d.textContent=`${icon(o.type)} ${o.id}`;d.onclick=()=>{selected=o.id;renderProps();renderList();draw()};el.appendChild(d)}
+}
+function renderProps(){
+  const o=data.objects.find(x=>x.id===selected),el=$("#props");
+  if(!o){el.textContent="未选择对象";return}
+  el.innerHTML=`<div class="badge">${o.type}</div>
+  <div class="row"><label>ID</label><input id="p_id" value="${esc(o.id)}"></div>
+  <div class="row"><label>X</label><input id="p_x" type="number" value="${o.x}"></div>
+  <div class="row"><label>Y</label><input id="p_y" type="number" value="${o.y}"></div>
+  <div class="row"><label>W</label><input id="p_w" type="number" value="${o.w||20}"></div>
+  <div class="row"><label>H</label><input id="p_h" type="number" value="${o.h||20}"></div>
+  ${o.type==="platform"?`<div class="row"><label>材质</label><select id="p_sub"><option value="stone">stone</option><option value="wood">wood</option><option value="tower">tower</option><option value="gate">gate</option></select></div>`:""}
+  <div class="row"><label>碰撞</label><input id="p_col" type="checkbox" ${o.collision?"checked":""}></div>
+  <button id="p_del" class="danger">删除对象</button>`;
+  if(o.type==="platform")$("#p_sub").value=o.subtype||"stone";
+  const bind=(id,fn)=>$(id).addEventListener("change",()=>{snapshot();fn()});
+  bind("#p_id",()=>{const n=$("#p_id").value.trim()||o.id;data.objects.forEach(x=>{if(x!==o&&x.id===n)throw 0});o.id=n;selected=n});
+  bind("#p_x",()=>o.x=Number($("#p_x").value)||0);bind("#p_y",()=>o.y=Number($("#p_y").value)||0);
+  bind("#p_w",()=>o.w=Math.max(5,Number($("#p_w").value)||20));bind("#p_h",()=>o.h=Math.max(5,Number($("#p_h").value)||20));
+  if(o.type==="platform")bind("#p_sub",()=>o.subtype=$("#p_sub").value);
+  bind("#p_col",()=>o.collision=$("#p_col").checked);
+  $("#p_del").onclick=()=>{snapshot();data.objects=data.objects.filter(x=>x!==o);selected=null;renderAll()};
+}
+function renderStats(){
+  const count=t=>data.objects.filter(o=>o.type===t).length;
+  $("#sPlatforms").textContent=count("platform");$("#sAnchors").textContent=count("anchor");$("#sTitans").textContent=count("titan");$("#sCP").textContent=count("checkpoint");
+}
+function renderAll(){fit();renderProps();renderList();renderStats()}
+
+/* ---------- Editing ---------- */
+function add(type){
+  snapshot();
+  const id=makeId(type), center=data.world.width/2;
+  const o={id,type,x:snap(center),y:500,w:100,h:60,collision:type==="platform"};
+  if(type==="anchor"){o.x=snap(center);o.y=300;o.w=o.h=20;o.collision=false}
+  if(type==="checkpoint"){o.x=snap(center);o.y=700;o.w=o.h=24;o.collision=false}
+  if(type==="titan"){o.x=snap(center);o.y=600;o.w=70;o.h=110;o.collision=true}
+  data.objects.push(o);selected=id;renderAll();
+}
+document.querySelectorAll("[data-tool]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-tool]").forEach(x=>x.classList.remove("active"));b.classList.add("active");tool=b.dataset.tool});
+document.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>add(b.dataset.add));
+viewport.addEventListener("mousedown",e=>{
+  const p=screenToWorld(e);
+  if(e.button===1||tool==="pan"){e.preventDefault();drag={pan:true,x:e.clientX,y:e.clientY,ox,oy};return}
+  if(tool!=="select")return;
+  const o=hit(p);
+  if(o){selected=o.id;drag={o,dx:p.x-o.x,dy:p.y-o.y};renderProps();renderList();draw()}else{selected=null;renderProps();renderList();draw()}
+});
+window.addEventListener("mousemove",e=>{
+  if(!drag)return;
+  if(drag.pan){ox=drag.ox+e.clientX-drag.x;oy=drag.oy+e.clientY-drag.y;draw();return}
+  const p=screenToWorld(e);drag.o.x=snap(p.x-drag.dx);drag.o.y=snap(p.y-drag.dy);draw();renderProps();
+});
+window.addEventListener("mouseup",()=>{if(drag&&!drag.pan)snapshot();drag=null});
+viewport.addEventListener("wheel",e=>{
+  e.preventDefault();const p=screenToWorld(e),old=scale;
+  scale=Math.max(.06,Math.min(1.5,scale*(e.deltaY<0?1.1:.9)));
+  const r=viewport.getBoundingClientRect();ox=e.clientX-r.left-p.x*scale;oy=e.clientY-r.top-p.y*scale;draw();
+},{passive:false});
+document.addEventListener("keydown",e=>{
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="s"){e.preventDefault();saveLocal();return}
+  if(e.key==="F6"){e.preventDefault();runGame();return}
+  if(e.key==="Escape"){$("#gameModal").classList.remove("show");return}
+  if((e.key==="Delete"||e.key==="Backspace")&&selected){snapshot();data.objects=data.objects.filter(o=>o.id!==selected);selected=null;renderAll()}
+  if(["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"].includes(e.key)&&selected){
+    e.preventDefault();snapshot();const o=data.objects.find(x=>x.id===selected);
+    o.x+=(e.key==="ArrowRight")*5-(e.key==="ArrowLeft")*5;o.y+=(e.key==="ArrowDown")*5-(e.key==="ArrowUp")*5;renderAll();
+  }
+});
+$("#gridToggle").onchange=e=>{$("#gridEl").style.display=e.target.checked?"block":"none"};
+$("#labelToggle").onchange=draw;$("#collisionToggle").onchange=draw;
+$("#undo").onclick=()=>{if(history.length){future.push(JSON.stringify(data));restore(history.pop())}};
+$("#redo").onclick=()=>{if(future.length){history.push(JSON.stringify(data));restore(future.pop())}};
+$("#new").onclick=()=>{snapshot();data={format:"AOT-UMAP",version:"2.0",source:"",world:{width:5200,height:920,groundY:920},objects:[]};renderAll()};
+
+/* ---------- Import / save ---------- */
+async function importZip(){
+  const f=$("#zipInput").files[0];if(!f)return;
+  try{
+    $("#sourceTip").textContent="正在解压并分析游戏……";
+    gameFiles=await readZip(f);
+    sourceRoot="";
+    const maneuverCandidates=[...gameFiles.keys()].filter(k=>k.toLowerCase().endsWith("js/rpg/maneuver-run.js"));
+    if(!maneuverCandidates.length) throw new Error("ZIP 中没有找到 js/rpg/maneuver-run.js。");
+    maneuverPath=maneuverCandidates[0];
+    sourceRoot=maneuverPath.slice(0,-"js/rpg/maneuver-run.js".length);
+    const src=bytesText(maneuverPath);
+    data=sourceToMap(src);
+    lastSaved=null;
+    $("#sourceTip").innerHTML=`已导入 <b>${esc(f.name)}</b><br>文件：${gameFiles.size} 个<br>地图脚本：${esc(maneuverPath)}<br>已识别地形、锚点、检查点与巨人。`;
+    $("#gameInfo").textContent=maneuverPath;
+    $("#run").disabled=false;
+    scale=.18;ox=40;oy=35;selected=null;history=[];future=[];renderAll();
+  }catch(err){console.error(err);alert("导入失败：\\n"+err.message)}
+  finally{$("#zipInput").value=""}
+}
+$("#importZip").onclick=()=>$("#zipInput").click();$("#zipInput").onchange=importZip;
+$("#importMap").onclick=()=>$("#mapInput").click();
+$("#mapInput").onchange=async e=>{const f=e.target.files[0];if(!f)return;try{data=JSON.parse(await f.text());history=[];future=[];renderAll()}catch(err){alert("地图 JSON 无法读取："+err.message)}e.target.value=""};
+function saveLocal(){localStorage.setItem("aot-map-studio-v2",JSON.stringify(data));lastSaved=Date.now();$("#sourceTip").textContent="已保存到浏览器本地存储。"}
+$("#save").onclick=saveLocal;
+try{const s=localStorage.getItem("aot-map-studio-v2");if(s){data=JSON.parse(s)}}catch{}
+function downloadText(text,name,type="text/plain"){
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+function showCode(title,text,name){
+  $("#codeTitle").textContent=title;$("#codeOut").value=text;$("#codeModal").classList.add("show");
+  $("#codeCopy").onclick=()=>navigator.clipboard?.writeText(text);
+  $("#codeDownload").onclick=()=>downloadText(text,name,text.trim().startsWith("{")?"application/json":"text/javascript");
+}
+$("#codeClose").onclick=()=>$("#codeModal").classList.remove("show");
+$("#exportMap").onclick=()=>showCode("导出 AOT-UMAP",JSON.stringify(data,null,2),"maneuver-map.json");
+$("#exportJs").onclick=()=>{
+  if(!maneuverPath){alert("请先导入队友游戏 ZIP。");return}
+  showCode("导出修改后的 maneuver-run.js",mapToGameJs(bytesText(maneuverPath)),"maneuver-run.js");
+};
+
+/* ---------- Real game preview ---------- */
+function buildPreviewHtml(){
+  if(!maneuverPath)return "";
+  const src=mapToGameJs(bytesText(maneuverPath))
+    .replace(/<\/script/gi,"<\\/script");
+  // The original game.html in the uploaded project is a landing/about page; the real
+  // maneuver game is driven by maneuver-run.js. We provide the exact DOM contract that
+  // maneuver-run.js expects, then execute the real source unchanged except for map data
+  // and resource URLs.
+  const assetPrefix = sourceRoot;
+  const rewrittenSrc = src.replace(/(["'`])images\//g,(m,q)=>q+urlFor(assetPrefix+"images/").replace(/\/$/,"")+"/");
+  // Replace remaining relative image references safely by known asset URLs.
+  const ASSET_KEYS=[
+    "images/game/generated/wall-guard-spritesheet-alpha.png",
+    "images/game/generated/cloudbound-ruins-level-concept-v1.png",
+    "images/game/generated/blackstone-wall-tileset-v1-alpha.png",
+    "images/game/generated/wood-traversal-tileset-v1-alpha.png",
+    "images/game/generated/blackstone-architecture-tileset-v1-alpha.png",
+    "images/game/generated/ruins-decorations-tileset-v1-alpha.png",
+    "images/game/generated/maneuver-anchors-hazards-v1-alpha.png",
+    "images/game/generated/titan-threat-spritesheet-v1-alpha.png"
+  ];
+  let finalSrc=src;
+  for(const rel of ASSET_KEYS){
+    const u=urlFor(assetPrefix+rel);
+    finalSrc=finalSrc.split('"'+rel+'"').join('"'+u+'"').split("'"+rel+"'").join("'"+u+"'").split("`"+rel+"`").join("`"+u+"`");
+  }
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><style>
+  html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#0b0d10;color:#fff;font-family:system-ui,"Microsoft YaHei",sans-serif}
+  .wrap{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#0b0d10}
+  #game{width:960px;height:540px;max-width:100vw;max-height:calc(100vh - 38px);background:#111;image-rendering:auto;border:1px solid #39404a}
+  .hud{position:absolute;top:7px;left:8px;right:8px;display:flex;gap:6px;pointer-events:none;font-size:12px}
+  .hud span{background:#111b;padding:4px 7px;border:1px solid #ffffff22;border-radius:4px}
+  #toast{position:absolute;left:50%;top:62px;transform:translateX(-50%);background:#111d;padding:8px 12px;border-radius:5px;display:none}
+  #overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+  #touch{display:none}
+  .control-help{position:absolute;bottom:7px;left:50%;transform:translateX(-50%);margin:0;background:#111c;padding:4px 8px;border-radius:4px;font-size:11px}
+  button{background:#20252c;color:#fff;border:1px solid #56606d;border-radius:4px;padding:5px 8px}
+  </style></head><body>
+  <div class="wrap">
+    <canvas id="game" width="960" height="540"></canvas>
+    <div class="hud">
+      <span>关卡 <b id="level">—</b></span><span id="objective">准备</span><span>材料 <b id="materials">0</b></span>
+      <span>救援 <b id="rescues">0</b></span><span>修复 <b id="repairs">0</b></span><span>时间 <b id="clock">0</b></span><span>死亡 <b id="deaths">0</b></span>
+      <button id="pause">Ⅱ</button><button id="sound">♬</button>
+    </div>
+    <div id="toast"></div><section id="overlay"></section>
+    <p class="control-help">A / D 或方向键移动 · SPACE 跳跃 · SHIFT 冲刺 · E 互动 · R 重开 · P 暂停</p>
+    <div id="touch"><button>◀</button></div>
+  </div>
+  <script>${finalSrc}</script>
+  
+<style>
+.zip-drop-zone{
+  border:2px dashed rgba(120,140,170,.55);
+  border-radius:14px;
+  padding:14px;
+  margin:10px 0 14px;
+  background:rgba(255,255,255,.035);
+  text-align:center;
+  transition:.15s ease;
+  cursor:pointer;
+}
+.zip-drop-zone:hover,.zip-drop-zone.dragover{
+  border-color:#7aa2ff;
+  background:rgba(122,162,255,.10);
+}
+.zip-drop-zone input{
+  display:block;
+  width:100%;
+  margin-top:10px;
+  box-sizing:border-box;
+}
+.zip-drop-title{font-weight:700;margin-bottom:5px}
+.zip-drop-text{font-size:12px;opacity:.72}
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  const zone = document.getElementById('zipDropZone');
+  const input = document.getElementById('zipInput');
+  if(!zone || !input) return;
+
+  zone.addEventListener('dragover', function(e){
+    e.preventDefault();
+    zone.classList.add('dragover');
+  });
+  zone.addEventListener('dragleave', function(){
+    zone.classList.remove('dragover');
+  });
+  zone.addEventListener('drop', function(e){
+    e.preventDefault();
+    zone.classList.remove('dragover');
+    const files = e.dataTransfer && e.dataTransfer.files;
+    if(files && files.length){
+      const f = files[0];
+      if(!/\\.zip$/i.test(f.name)){
+        alert('请选择 .zip 游戏文件');
+        return;
+      }
+      // DataTransfer keeps the FileList assignable in modern Chromium/Firefox.
+      try {
+        const dt = new DataTransfer();
+        dt.items.add(f);
+        input.files = dt.files;
+      } catch(_) {}
+      input.dispatchEvent(new Event('change', {bubbles:true}));
+    }
+  });
+  zone.addEventListener('keydown', function(e){
+    if(e.key === 'Enter' || e.key === ' '){
+      e.preventDefault();
+      input.click();
+    }
+  });
+});
+</script>
+
+
+<script>
+(function(){
+  "use strict";
+
+  // Minimal dependency-free ZIP writer (Store/no compression).
+  function crc32(bytes){
+    let c = 0xFFFFFFFF;
+    for(let i=0;i<bytes.length;i++){
+      c ^= bytes[i];
+      for(let k=0;k<8;k++) c = (c>>>1) ^ (0xEDB88320 & -(c & 1));
+    }
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+  function u16(n){ return new Uint8Array([n&255,(n>>>8)&255]); }
+  function u32(n){ return new Uint8Array([n&255,(n>>>8)&255,(n>>>16)&255,(n>>>24)&255]); }
+  function cat(parts){
+    let n=parts.reduce((s,a)=>s+a.length,0), out=new Uint8Array(n), p=0;
+    for(const a of parts){ out.set(a,p); p+=a.length; }
+    return out;
+  }
+  function dosTimeDate(){
+    const d=new Date();
+    return {
+      time: ((d.getHours()<<11)|(d.getMinutes()<<5)|(Math.floor(d.getSeconds()/2))) & 0xFFFF,
+      date: (((d.getFullYear()-1980)<<9)|((d.getMonth()+1)<<5)|d.getDate()) & 0xFFFF
+    };
+  }
+  function zipStore(entries){
+    const enc=new TextEncoder(), local=[], central=[], {time,date}=dosTimeDate();
+    let offset=0;
+    for(const e of entries){
+      const name=enc.encode(e.name.replace(/^\/+/,""));
+      const data=e.data instanceof Uint8Array ? e.data : new Uint8Array(e.data);
+      const crc=crc32(data);
+      const lh=cat([
+        new Uint8Array([0x50,0x4b,0x03,0x04]),
+        u16(20),u16(0),u16(0),u16(time),u16(date),
+        u32(crc),u32(data.length),u32(data.length),u16(name.length),u16(0),name
+      ]);
+      local.push(lh,data);
+      const ch=cat([
+        new Uint8Array([0x50,0x4b,0x01,0x02]),
+        u16(20),u16(20),u16(0),u16(0),u16(time),u16(date),
+        u32(crc),u32(data.length),u32(data.length),u16(name.length),u16(0),
+        u16(0),u16(0),u16(0),u32(0),u32(offset),name
+      ]);
+      central.push(ch);
+      offset += lh.length + data.length;
+    }
+    const cdOffset=offset;
+    const cdSize=central.reduce((s,a)=>s+a.length,0);
+    const count=entries.length;
+    const eocd=cat([
+      new Uint8Array([0x50,0x4b,0x05,0x06]),
+      u16(0),u16(0),u16(count),u16(count),u32(cdSize),u32(cdOffset),u16(0)
+    ]);
+    return cat([...local,...central,eocd]);
+  }
+
+  function textBytes(s){ return new TextEncoder().encode(s); }
+
+  function findGameFiles(){
+    // v2 editor uses gameFiles in the import/export flow. Support a few
+    // reasonable variants to make this patch resilient.
+    const candidates=[
+      window.gameFiles, window.sourceFiles, window.filesMap, window.zipFiles
+    ];
+    for(const x of candidates){
+      if(x instanceof Map && x.size) return x;
+      if(x && typeof x==='object' && Object.keys(x).length) return x;
+    }
+    return null;
+  }
+
+  function toBytes(v){
+    if(v instanceof Uint8Array) return v;
+    if(v instanceof ArrayBuffer) return new Uint8Array(v);
+    if(typeof v === "string") return textBytes(v);
+    if(v && v.bytes instanceof Uint8Array) return v.bytes;
+    if(v && v.data instanceof Uint8Array) return v.data;
+    return null;
+  }
+
+  function currentMapData(){
+    // Locate the editor's current data object.
+    const names=["data","mapData","state","editorData","UMAP"];
+    for(const n of names){
+      const v=window[n];
+      if(v && typeof v==="object" &&
+         (Array.isArray(v.platforms)||Array.isArray(v.PLATFORM)||
+          Array.isArray(v.anchors)||Array.isArray(v.ANCHORS))) return v;
+    }
+    return null;
+  }
+
+  function arrFor(d, a, b){
+    if(Array.isArray(d[a])) return d[a];
+    if(Array.isArray(d[b])) return d[b];
+    return [];
+  }
+
+  function makeManeuverPatch(original, d){
+    const platforms=arrFor(d,"platforms","PLATFORM");
+    const anchors=arrFor(d,"anchors","ANCHORS");
+    const checkpoints=arrFor(d,"checkpoints","CHECKPOINTS");
+    let titan=(Array.isArray(d.titans)?d.titans[0]:d.titan)||{};
+    if(!titan.x && d.titanX!=null) titan={x:d.titanX,y:d.titanY||700};
+
+    function replaceArray(src, name, value){
+      const re=new RegExp(
+        "(const|let|var)\\\\s+"+name+"\\\\s*=\\\\s*\\\\[[\\\\s\\\\S]*?\\\\n\\\\s*\\\\];"
+      );
+      const text=JSON.stringify(value,null,2);
+      const m=src.match(re);
+      if(!m) return src;
+      return src.replace(re, m[1]+" "+name+" = "+text+";");
+    }
+    let s=original;
+    s=replaceArray(s,"PLATFORM",platforms);
+    s=replaceArray(s,"ANCHORS",anchors);
+    s=replaceArray(s,"CHECKPOINTS",checkpoints);
+
+    if(titan && titan.x!=null){
+      s=s.replace(
+        /titan\\s*=\\s*\\{\\s*x\\s*:\\s*[-+\\d.]+\\s*,\\s*y\\s*:\\s*[-+\\d.]+/,
+        "titan={x:"+Number(titan.x)+",y:"+Number(titan.y||700)
+      );
+    }
+    return s;
+  }
+
+  async function exportFullGameZip(){
+    const files=findGameFiles();
+    if(!files){
+      alert("请先点击“导入整个游戏 ZIP”，导入队友的完整游戏后再导出。");
+      return;
+    }
+
+    const entries=[];
+    const add=(name,data)=>{
+      const b=toBytes(data);
+      if(b) entries.push({name,data:b});
+    };
+
+    if(files instanceof Map){
+      for(const [name,val] of files.entries()) add(name,val);
+    }else{
+      for(const name of Object.keys(files)) add(name,files[name]);
+    }
+
+    if(!entries.length){
+      alert("没有读取到游戏文件，请重新导入 ZIP。");
+      return;
+    }
+
+    // Patch maneuver-run.js using the editor's current map when possible.
+    const d=currentMapData();
+    const targetIndex=entries.findIndex(e=>/js\\/rpg\\/maneuver-run\\.js$/i.test(e.name));
+    if(targetIndex>=0 && d){
+      try{
+        const decoder=new TextDecoder("utf-8");
+        const original=decoder.decode(entries[targetIndex].data);
+        const patched=makeManeuverPatch(original,d);
+        entries[targetIndex].data=textBytes(patched);
+      }catch(err){
+        console.warn("maneuver-run.js patch skipped:",err);
+      }
+    }
+
+    // Include an explicit map snapshot for future editing/debugging.
+    if(d){
+      entries.push({
+        name:"maps/maneuver-map.json",
+        data:textBytes(JSON.stringify(d,null,2))
+      });
+    }
+
+    entries.push({
+      name:"AOT-MAP-EDITOR-README.txt",
+      data:textBytes(
+        "此 ZIP 由 AOT Map Studio 导出。\\r\\n"+
+        "地图数据已根据编辑器当前状态写入 js/rpg/maneuver-run.js。\\r\\n"+
+        "同时保留 maps/maneuver-map.json 作为地图备份。\\r\\n"
+      )
+    });
+
+    const zip=zipStore(entries);
+    const blob=new Blob([zip],{type:"application/zip"});
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download="AOT-Game-Edited-"+new Date().toISOString().slice(0,10)+".zip";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1500);
+
+    alert("完整游戏 ZIP 已导出，共 "+entries.length+" 个文件。");
+  }
+
+  function bind(){
+    const b=document.getElementById("exportFullGameZipBtn");
+    if(!b) return;
+    b.addEventListener("click",exportFullGameZip);
+  }
+  if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",bind);
+  else bind();
+})();
+</script>
+
+</body></html>`;
+}
+function runGame(){
+  if(!maneuverPath){alert("请先导入整个游戏 ZIP。");return}
+  const frame=$("#gameFrame");
+  frame.srcdoc=buildPreviewHtml();
+  $("#gameModal").classList.add("show");
+}
+$("#run").onclick=runGame;$("#gameReload").onclick=runGame;$("#gameClose").onclick=()=>$("#gameModal").classList.remove("show");
+
+/* ---------- Initial ---------- */
+renderAll();
+})();
+</script>
+</body>
+</html>
